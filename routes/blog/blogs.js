@@ -22,24 +22,65 @@ app.use(express.json());
 // @route  GET /api/anubhav/blogs?useLatest=true
 // @desc   get all blogs
 // @access public
-router.get('/blogs', async (req, res) => {
+router.get("/blogs", async (req, res) => {
   try {
     const useLatest = req.query.useLatest === 'true';
+    const page = parseInt(req.query.page) || 1;
+    const limit = 5; // Number of articles per page
 
+    const query = { isAuthentic: true };
     if (useLatest) {
-      const latestArticles = await Article.find()
-          .sort({createdAt: -1})
-          .limit(5);
-      res.json(latestArticles);
-    } else {
-      const blogs = await Article.find({}).sort({createdAt: -1}).limit(10);
-      res.json(blogs);
+      query.sort = { createdAt: -1 };
     }
+
+    const articles = await Article.find(query)
+      .sort({ createdAt: -1 })
+      .sort(query.sort)
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    // Check if there are more articles
+    const hasMore = articles.length === limit;
+
+    res.json({ articles, hasMore });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server Error');
   }
 });
+
+// @route  GET /api/anubhav/articles?useLatest=true
+// @desc   get all blogs
+// @access private
+// control center route
+router.get("/articles", async (req, res) => {
+  try {
+    const useLatest = req.query.useLatest === 'true';
+    const page = parseInt(req.query.page) || 1;
+    const limit = 5; // Number of articles per page
+
+    const query = {};
+    if (useLatest) {
+      query.sort = { createdAt: -1 };
+    }
+
+    const articles = await Article.find(query)
+      .sort({ createdAt: -1 })
+      .sort(query.sort)
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    // Check if there are more articles
+    const hasMore = articles.length === limit;
+
+    res.json({ articles, hasMore });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+
 
 // @route  GET /api/anubhav/blog/:id
 // @desc   get a single blog by its ID
@@ -49,6 +90,14 @@ router.get('/blog/:index', async (req, res) => {
     const index = req.params.index;
 
     const blog = await Article.findById(index);
+
+    if (!blog) {
+      return res.status(404).json({ msg: 'Blog not found' });
+    }
+
+    if (!blog.isAuthentic) {
+      return res.status(403).json({ msg: 'Blog is not authentic' });
+    }
 
     res.json(blog);
   } catch (err) {
@@ -90,6 +139,60 @@ router.get('/search', async (req, res) => {
   }
 });
 
+// @route  GET /api/anubhav/companies?company=Microsoft
+// @desc Get company articles
+router.get('/getCompany', async (req, res) => {
+  const companyName = req.query.company;
+  console.log("here", companyName);
+
+  try {
+    const totalArticles = await Article.countDocuments({ companyName: companyName });
+    const articles = await Article.find({ companyName: companyName });
+    res.json({ totalArticles, articles });
+  } catch (error) {
+    console.error('Error searching for suggestions:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// @route  GET /api/anubhav/countCompanies
+// @desc   Get the companies and there count with logo
+// @access public
+router.get("/countCompanies", async (req,res)=>{
+  try{
+    const allCompanies = await Article.find({ isAuthentic: true }).sort({ companyName: 1 });
+    const data = [];
+    allCompanies.forEach((article) => {
+      let company = article.companyName;
+      let domainName = article.companyDomainName;
+      let isCompanyFound = false;
+      for (let d of data) {
+          if (d.company === company) {
+              isCompanyFound = true;
+              d.count++;
+              break;
+          }
+      }
+      if (!isCompanyFound) {
+          data.push({
+            company,
+            domainName,
+            count: 1,
+          });
+      }
+  });
+
+  return res.status(200).json({
+    success: true,
+    data,
+  });
+
+  } catch (error) {
+    console.error('Error searching for suggestions:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+})
+
 // @route  GET /api/anubhav/search
 // @desc   implement search and filters
 // @access public
@@ -98,7 +201,7 @@ router.get('/similarBlogs', async (req, res) => {
   const companyName = req.query.company;
   const tags = req.query.tags;
 
-  const baseQuery = {$text: {$search: query}};
+  const baseQuery = {$text: {$search: query},};
   if (companyName) {
     baseQuery.companyName = companyName;
   }
